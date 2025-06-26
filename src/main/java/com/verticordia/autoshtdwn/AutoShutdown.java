@@ -8,21 +8,31 @@ import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.proxy.server.ServerPing.Players;
+
 import org.slf4j.Logger;
 
+import java.util.Collection;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-@Plugin(id = "autoshtdwn", name = "AutoShutdown", version = "0.0.0-SNAPSHOT", description = "Shuts down the proxy if NOTHING (no pings, no handshakes, no logins) happens for 90 seconds.", authors = {
+@Plugin(id = "autoshtdwn", name = "AutoShutdown", version = "0.0.0-SNAPSHOT", description = "Shuts down if NOTHING (no client pings, no logins, NO backend activity) for 90s.", authors = {
 		"Lucca Pellegrini" })
 public class AutoShutdown {
 	private final ProxyServer proxy;
 	private final Logger logger;
 
-	/** last time we saw *any* connection activity (handshake, ping, login, etc.) */
+	/**
+	 * When we last saw any activity (handshake, ping, login, or backend players)
+	 */
 	private volatile long lastActive = System.currentTimeMillis();
 
-	/** seconds of total silence before we exit */
+	/** Seconds of silence before we exit */
 	private static final long IDLE_THRESHOLD_SECONDS = 90;
+
+	/** How often to poll backends for their own player‐counts */
+	private static final long BACKEND_POLL_INTERVAL_SECONDS = 10;
 
 	@Inject
 	public AutoShutdown(ProxyServer proxy, Logger logger) {
@@ -32,48 +42,76 @@ public class AutoShutdown {
 
 	@Subscribe
 	public void onProxyInit(ProxyInitializeEvent ev) {
-		// every second check how long we've been silent
+		// 1) Every second, check if we've exceeded IDLE_THRESHOLD
 		proxy.getScheduler()
 				.buildTask(this, this::checkIdle)
 				.repeat(1, TimeUnit.SECONDS)
 				.schedule();
 
-		logger.info("AutoShutdown scheduled (threshold {}s of zero activity)", IDLE_THRESHOLD_SECONDS);
+		// 2) Every BACKEND_POLL_INTERVAL_SECONDS, ping all registered servers
+		proxy.getScheduler()
+				.buildTask(this, this::pollBackends)
+				.repeat(BACKEND_POLL_INTERVAL_SECONDS, TimeUnit.SECONDS)
+				.schedule();
+
+		logger.info("AutoShutdown: threshold={}s, backend‐poll={}s",
+				IDLE_THRESHOLD_SECONDS,
+				BACKEND_POLL_INTERVAL_SECONDS);
 	}
 
 	@Subscribe
 	public void onHandshake(ConnectionHandshakeEvent ev) {
-		// catches both real login attempts and status handshakes
-		resetIdleTimer("handshake");
+		bump("handshake");
 	}
 
 	@Subscribe
 	public void onPing(ProxyPingEvent ev) {
-		// status / MOTD ping
-		resetIdleTimer("ping");
+		bump("MOTD ping");
 	}
 
 	@Subscribe
 	public void onLogin(LoginEvent ev) {
-		resetIdleTimer("login");
+		bump("login");
 	}
 
-	private void resetIdleTimer(String what) {
+	private void bump(String why) {
 		lastActive = System.currentTimeMillis();
-		logger.debug("Activity detected ({}), resetting idle timer", what);
+		logger.debug("Activity [{}], resetting idle timer", why);
+	}
+
+	private void pollBackends() {
+		Collection<RegisteredServer> servers = proxy.getAllServers();
+		for (RegisteredServer srv : servers) {
+			srv.ping().whenComplete((ping, ex) -> {
+				if (ex != null) {
+					logger.warn("Failed to ping backend {}", srv.getServerInfo().getName(), ex);
+					return;
+				}
+
+				Optional<Players> players = ping.getPlayers();
+				if (players.isEmpty())
+					return;
+
+				int count = players.get().getOnline();
+				if (count > 0) {
+					lastActive = System.currentTimeMillis();
+					logger.debug("Backend '{}' has {} players → resetting idle timer",
+							srv.getServerInfo().getName(), count);
+				}
+			});
+		}
 	}
 
 	private void checkIdle() {
 		long now = System.currentTimeMillis();
 		int online = proxy.getPlayerCount();
-
 		if (online > 0) {
+			// physical players on proxy → reset immediately
 			lastActive = now;
 			return;
 		}
 
 		long idleSec = (now - lastActive) / 1_000;
-
 		if (idleSec >= IDLE_THRESHOLD_SECONDS) {
 			logger.info("No activity for {}s → shutting down proxy", idleSec);
 			proxy.shutdown();
