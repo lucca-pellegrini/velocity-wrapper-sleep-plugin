@@ -1,0 +1,31 @@
+# EditorConfig é útil para manter estilos de codificação consistentes entre
+# diferentes editores e IDEs Mais informações em https://editorconfig.org
+
+# Indica que este é o arquivo EditorConfig raiz e que as configurações não
+# devem ser herdadas de arquivos superiores
+root = true
+
+# Definições gerais para todos os arquivos
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Arquivos Java
+[*.java]
+indent_style = tab
+tab_width = 4
+max_line_length = 100
+
+# Arquivos XML (por exemplo, arquivos de configuração do Maven),
+# arquivos JSON,
+# e arquivos de propriedades (por exemplo, arquivos .properties)
+[*.{xml,json,properties}]
+indent_style = space
+indent_size = 4
+
+# Arquivos YAML (por exemplo, arquivos de configuração do Maven)
+[*.yml]
+indent_style = space
+indent_size = 2
