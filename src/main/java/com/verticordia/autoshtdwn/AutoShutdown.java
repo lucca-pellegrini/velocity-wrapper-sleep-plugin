@@ -65,6 +65,13 @@ public class AutoShutdown {
 
 	private void checkIdle() {
 		long now = System.currentTimeMillis();
+		int online = proxy.getPlayerCount();
+
+		if (online > 0) {
+			lastActive = now;
+			return;
+		}
+
 		long idleSec = (now - lastActive) / 1_000;
 
 		if (idleSec >= IDLE_THRESHOLD_SECONDS) {
