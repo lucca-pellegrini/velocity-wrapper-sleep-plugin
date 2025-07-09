@@ -11,10 +11,18 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerPing.Players;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+
 import org.slf4j.Logger;
 
+import java.net.ConnectException;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Plugin(id = "autoshtdwn", name = "AutoShutdown", version = "0.0.0-SNAPSHOT", description = "Shuts down if NOTHING (no client pings, no logins, NO backend activity) for 90s.", authors = {
@@ -33,6 +41,12 @@ public class AutoShutdown {
 
 	/** How often to poll backends for their own player‐counts */
 	private static final long BACKEND_POLL_INTERVAL_SECONDS = 10;
+
+	/** Map to track the last successful ping time for each server */
+	private final Map<String, Long> lastSuccessfulPing = new ConcurrentHashMap<>();
+
+	/** Maximum time in seconds a server can be unreachable before shutdown */
+	private static final long SERVER_UNREACHABLE_THRESHOLD_SECONDS = 30;
 
 	@Inject
 	public AutoShutdown(ProxyServer proxy, Logger logger) {
@@ -84,8 +98,20 @@ public class AutoShutdown {
 		for (RegisteredServer srv : servers) {
 			srv.ping().whenComplete((ping, ex) -> {
 				if (ex != null) {
-					logger.warn("Failed to ping backend {}", srv.getServerInfo().getName(), ex);
-					return;
+					String serverName = srv.getServerInfo().getName();
+					logger.warn("Failed to ping backend {}: {}", serverName, ex.getMessage());
+
+					long lastPingTime = lastSuccessfulPing.getOrDefault(serverName, 0L);
+					long now = System.currentTimeMillis();
+					long unreachableTimeSec = (now - lastPingTime) / 1_000;
+
+					if (unreachableTimeSec >= SERVER_UNREACHABLE_THRESHOLD_SECONDS) {
+						logger.info("Server {} unreachable for {}s → shutting down proxy", serverName,
+								unreachableTimeSec);
+						kickAllPlayers(serverName);
+						proxy.shutdown();
+						return;
+					}
 				}
 
 				Optional<Players> players = ping.getPlayers();
@@ -94,9 +120,10 @@ public class AutoShutdown {
 
 				int count = players.get().getOnline();
 				if (count > 0) {
+					String serverName = srv.getServerInfo().getName();
 					lastActive = System.currentTimeMillis();
-					logger.debug("Backend '{}' has {} players → resetting idle timer",
-							srv.getServerInfo().getName(), count);
+					lastSuccessfulPing.put(serverName, lastActive);
+					logger.debug("Backend '{}' has {} players → resetting idle timer", serverName, count);
 				}
 			});
 		}
@@ -117,4 +144,26 @@ public class AutoShutdown {
 			proxy.shutdown();
 		}
 	}
+
+	private void kickAllPlayers(String serverName) {
+		proxy.getAllPlayers().forEach(player -> {
+			TextComponent msg = Component
+					.text("Um dos nossos servidores")
+					.color(NamedTextColor.RED)
+					.append(Component.text(" (o servidor “", NamedTextColor.DARK_RED))
+					.append(Component.text(serverName, NamedTextColor.GOLD))
+					.append(Component.text("”) ", NamedTextColor.DARK_RED))
+					.append(Component.text("não pôde ser alcançado. Provavelmente crashou!\n", NamedTextColor.RED))
+					.append(Component.text(
+							"A rede inteira será reiniciada, automaticamente. Para isso, temos que temporariamente desligar todos os servidores.\n",
+							NamedTextColor.AQUA))
+					.append(Component.text(
+							"Tente entrar novamente em dois minutos. Sinto muito pela inconveniência, mas às vezes meu PC simplesmente não tanka... ",
+							NamedTextColor.AQUA))
+					.append(Component.text(" ☹\n", NamedTextColor.WHITE))
+					.append(Component.text("(Se o problema persistir, procure o operador.)", NamedTextColor.DARK_AQUA));
+			player.disconnect(msg);
+		});
+	}
+
 }
