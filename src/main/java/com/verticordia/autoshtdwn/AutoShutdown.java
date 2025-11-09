@@ -4,26 +4,21 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.ConnectionHandshakeEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
-import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerPing.Players;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextColor;
-
-import org.slf4j.Logger;
-
-import java.net.ConnectException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.slf4j.Logger;
 
 @Plugin(id = "autoshtdwn", name = "AutoShutdown", version = "0.0.0-SNAPSHOT", description = "Shuts down if NOTHING (no client pings, no logins, NO backend activity) for 90s.", authors = {
 		"Lucca Pellegrini" })
@@ -68,8 +63,7 @@ public class AutoShutdown {
 				.repeat(BACKEND_POLL_INTERVAL_SECONDS, TimeUnit.SECONDS)
 				.schedule();
 
-		logger.info("AutoShutdown: threshold={}s, backend‐poll={}s",
-				IDLE_THRESHOLD_SECONDS,
+		logger.info("AutoShutdown: threshold={}s, backend‐poll={}s", IDLE_THRESHOLD_SECONDS,
 				BACKEND_POLL_INTERVAL_SECONDS);
 	}
 
@@ -106,8 +100,8 @@ public class AutoShutdown {
 					long unreachableTimeSec = (now - lastPingTime) / 1_000;
 
 					if (unreachableTimeSec >= SERVER_UNREACHABLE_THRESHOLD_SECONDS) {
-						logger.info("Server {} unreachable for {}s → shutting down proxy", serverName,
-								unreachableTimeSec);
+						logger.info("Server {} unreachable for {}s → shutting down proxy",
+								serverName, unreachableTimeSec);
 						kickAllPlayers(serverName);
 						proxy.shutdown();
 						return;
@@ -123,7 +117,8 @@ public class AutoShutdown {
 					String serverName = srv.getServerInfo().getName();
 					lastActive = System.currentTimeMillis();
 					lastSuccessfulPing.put(serverName, lastActive);
-					logger.debug("Backend '{}' has {} players → resetting idle timer", serverName, count);
+					logger.debug(
+							"Backend '{}' has {} players → resetting idle timer", serverName, count);
 				}
 			});
 		}
@@ -146,24 +141,26 @@ public class AutoShutdown {
 	}
 
 	private void kickAllPlayers(String serverName) {
+		TextComponent msg = Component.text("Um dos nossos servidores")
+				.color(NamedTextColor.RED)
+				.append(Component.text(" (o servidor “", NamedTextColor.DARK_RED))
+				.append(Component.text(serverName, NamedTextColor.GOLD))
+				.append(Component.text("”) ", NamedTextColor.DARK_RED))
+				.append(Component.text(
+						"não pôde ser alcançado. Provavelmente crashou!\n", NamedTextColor.RED))
+				.append(Component.text(
+						"A rede inteira será reiniciada, automaticamente. Para isso, temos que "
+								+ "temporariamente desligar todos os servidores.\n",
+						NamedTextColor.AQUA))
+				.append(Component.text(
+						"Tente entrar novamente em dois minutos. Sinto muito pela inconveniência, "
+								+ "mas às vezes meu PC simplesmente não tanka... ",
+						NamedTextColor.AQUA))
+				.append(Component.text(" ☹\n", NamedTextColor.WHITE))
+				.append(Component.text(
+						"(Se o problema persistir, procure o operador.)", NamedTextColor.DARK_AQUA));
 		proxy.getAllPlayers().forEach(player -> {
-			TextComponent msg = Component
-					.text("Um dos nossos servidores")
-					.color(NamedTextColor.RED)
-					.append(Component.text(" (o servidor “", NamedTextColor.DARK_RED))
-					.append(Component.text(serverName, NamedTextColor.GOLD))
-					.append(Component.text("”) ", NamedTextColor.DARK_RED))
-					.append(Component.text("não pôde ser alcançado. Provavelmente crashou!\n", NamedTextColor.RED))
-					.append(Component.text(
-							"A rede inteira será reiniciada, automaticamente. Para isso, temos que temporariamente desligar todos os servidores.\n",
-							NamedTextColor.AQUA))
-					.append(Component.text(
-							"Tente entrar novamente em dois minutos. Sinto muito pela inconveniência, mas às vezes meu PC simplesmente não tanka... ",
-							NamedTextColor.AQUA))
-					.append(Component.text(" ☹\n", NamedTextColor.WHITE))
-					.append(Component.text("(Se o problema persistir, procure o operador.)", NamedTextColor.DARK_AQUA));
 			player.disconnect(msg);
 		});
 	}
-
 }
